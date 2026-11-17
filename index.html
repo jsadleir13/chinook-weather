@@ -110,6 +110,7 @@ td.na{color:var(--mut)}
 /* radar */
 #radarWrap{position:relative;height:360px;border-radius:10px;overflow:hidden;background:var(--card2)}
 #radarMap{position:absolute;inset:0}
+#radarMap .leaflet-base-pane img.leaflet-tile{width:256.5px!important;height:256.5px!important}
 .rctl{display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap}
 .seg{display:inline-flex;background:var(--chip);border-radius:999px;padding:2px}
 .seg button{padding:5px 12px;border-radius:999px;font-size:13px}
@@ -212,7 +213,7 @@ input[type=text],input[type=password],input[type=search]{width:100%;font:inherit
 
 <script>
 'use strict';
-const VERSION = '1.0.2';
+const VERSION = '1.0.3';
 const MODELS = [
   {id:'gem_hrdps_continental', s:'HRDPS', n:'Canada high-res 2.5 km (2 days)'},
   {id:'gem_regional',          s:'RDPS',  n:'Canada regional 10 km (3.5 days)'},
