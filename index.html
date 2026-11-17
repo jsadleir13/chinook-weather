@@ -88,7 +88,7 @@ h2 small{font-weight:500;text-transform:none;letter-spacing:0;font-size:12px}
 .dr .hl b{font-weight:700}
 .dr .hl .lo{color:var(--mut)}
 .dr .src{font-size:9.5px;font-weight:700;letter-spacing:.04em;color:var(--mut);display:block;margin-top:1px}
-.dr .src.ec{color:var(--acc)}
+.dr .src.ec{color:var(--acc)}.dr .src.g{color:#34c759}
 .bar{position:relative;height:22px}
 .bar .rng{position:absolute;top:8px;height:6px;border-radius:4px;background:var(--line)}
 .bar .med{position:absolute;top:7px;height:8px;border-radius:5px}
@@ -186,7 +186,7 @@ input[type=text],input[type=password],input[type=search]{width:100%;font:inherit
   <section class="card about">
     <h2>How to read this</h2>
     <p><b style="color:var(--acc)">EC</b> = Environment Canada's official forecast, written by its forecasters (about 6 days ahead). Used as the headline number when available.</p>
-    <p><b>Models</b> = the median of 7 computer models: Canada HRDPS (2.5 km), RDPS (10 km), GDPS, ECMWF, ECMWF-AI, GFS/HRRR and ICON. Add Google's forecast in ⚙ settings.</p>
+    <p><b>Models</b> = the median of 7 computer models: Canada HRDPS (2.5 km), RDPS (10 km), GDPS, ECMWF, ECMWF-AI, GFS/HRRR and ICON. Add Google's forecast in ⚙ settings; you can also make Google or the model median the headline instead of Environment Canada.</p>
     <p>Dot colour = how well the models agree on the high: <span style="color:var(--good)">●</span> within 3°, <span style="color:var(--mid)">●</span> 4–6°, <span style="color:var(--bad)">●</span> 7° or more. Red usually means a chinook or arctic front is in play and timing is uncertain.</p>
     <p>High = 6 AM–9 PM. Low = that night (6 PM–9 AM), the same way Environment Canada reports it.</p>
     <p id="srcLine">Data: Environment and Climate Change Canada · <a href="https://open-meteo.com/" target="_blank" rel="noopener">Weather data by Open-Meteo.com</a> (CC BY 4.0)</p>
@@ -203,9 +203,12 @@ input[type=text],input[type=password],input[type=search]{width:100%;font:inherit
     <div class="row" style="margin-top:10px"><input type="search" id="q" placeholder="Add a place (e.g. Cochrane, Fort Nelson)" enterkeyhint="search"><button class="btn" id="qBtn">Search</button></div>
     <div id="qRes"></div>
     <h3>Google forecast (optional)</h3>
-    <p class="note">Adds Google's own forecast (MetNet / WeatherNext AI) as an 8th model. Needs a Google Maps Platform API key with the <b>Weather API</b> enabled. Google gives 10,000 free calls a month per call type, which covers personal use, but it asks for a billing account. The key is stored only on this phone.</p>
+    <p class="note">Adds Google's own forecast (MetNet / WeatherNext AI) as an 8th model. Needs a Google Maps Platform API key with the <b>Weather API</b> enabled. Easiest: a free <b>Maps Demo Key</b> (personal Gmail, no credit card). The app uses 3–4 Google calls per refresh and reuses them for 30 min. The key is stored only on this phone.</p>
     <div class="row"><input type="password" id="gkey" placeholder="Paste API key" autocomplete="off"><button class="btn" id="gSave">Save</button></div>
     <p class="note" id="gStatus"></p>
+    <h3>Headline numbers in the 10-day list</h3>
+    <div class="seg" id="headSeg"><button data-h="ec">Env. Canada</button><button data-h="google">Google</button><button data-h="median">Model median</button></div>
+    <p class="note">Every source still shows when you tap a day. Days a source doesn't cover fall back to the model median.</p>
     <h3>About</h3>
     <p class="note">Chinook Weather · built for Calgary's chinooks and arctic fronts. Refreshes when opened if data is older than 10 minutes.</p>
   </div>
@@ -213,7 +216,7 @@ input[type=text],input[type=password],input[type=search]{width:100%;font:inherit
 
 <script>
 'use strict';
-const VERSION = '1.0.3';
+const VERSION = '1.1.0';
 const MODELS = [
   {id:'gem_hrdps_continental', s:'HRDPS', n:'Canada high-res 2.5 km (2 days)'},
   {id:'gem_regional',          s:'RDPS',  n:'Canada regional 10 km (3.5 days)'},
@@ -337,19 +340,24 @@ async function fetchECCC(loc){
   return {fc: fc ? stripFr(fc.p) : null, fcKm: fc ? fc.km : null, ob: ob ? stripFr(ob.p) : null, obKm: ob ? ob.km : null};
 }
 async function fetchGoogle(loc, key){
+  // 3-4 calls per refresh: daily (1-2 pages) + hourly 48 h (2 pages). Cached 30 min to stay inside free limits.
   const b = 'https://weather.googleapis.com/v1/';
   const q = `key=${encodeURIComponent(key)}&location.latitude=${loc.lat}&location.longitude=${loc.lon}`;
-  const daysP = getJSON(`${b}forecast/days:lookup?${q}&days=10&pageSize=10`);
-  const curP = getJSON(`${b}currentConditions:lookup?${q}`).catch(() => null);
-  let hours = [], tok = '';
-  for (let i = 0; i < 4; i++) {
-    const j = await getJSON(`${b}forecast/hours:lookup?${q}&hours=72&pageSize=24${tok ? '&pageToken=' + encodeURIComponent(tok) : ''}`);
-    hours = hours.concat(j.forecastHours || []);
-    if (!j.nextPageToken || hours.length >= 72) break;
-    tok = j.nextPageToken;
+  async function pages(path, extra, want, field){
+    let out = [], tok = '';
+    for (let i = 0; i < 4; i++) {
+      const j = await getJSON(`${b}${path}?${q}${extra}${tok ? '&pageToken=' + encodeURIComponent(tok) : ''}`);
+      out = out.concat(j[field] || []);
+      if (!j.nextPageToken || out.length >= want) break;
+      tok = j.nextPageToken;
+    }
+    return out;
   }
-  const days = await daysP;
-  return {days: days.forecastDays || [], hours, cur: await curP};
+  const [days, hours] = await Promise.all([
+    pages('forecast/days:lookup', '&days=10&pageSize=10', 10, 'forecastDays'),
+    pages('forecast/hours:lookup', '&hours=48&pageSize=24', 48, 'forecastHours')
+  ]);
+  return {days, hours, t: Date.now()};
 }
 
 /* ---------- processing ---------- */
@@ -479,8 +487,10 @@ function processData(raw){
       gust: median(pick('gust')), gustR: rng(pick('gust')), pop: median(pick('pop')), n: nn(pick('hi')).length, code: mode};
     o.gdir = per.ecmwf_ifs025.gdir ?? per.gfs_seamless.gdir;
     o.spread = o.hiR && o.n >= 3 ? o.hiR[1] - o.hiR[0] : null;
-    o.H = o.ec && o.ec.hi != null ? o.ec.hi : o.hi; o.Hsrc = o.ec && o.ec.hi != null ? 'EC' : 'M';
-    o.Lo = o.ec && o.ec.lo != null ? o.ec.lo : o.lo; o.Lsrc = o.ec && o.ec.lo != null ? 'EC' : 'M';
+    const head = settings.headline || 'ec', g = per.google;
+    if (head === 'google' && g && g.hi != null) { o.H = g.hi; o.Lo = g.lo != null ? g.lo : o.lo; o.Hsrc = 'G'; }
+    else if (head === 'ec' && o.ec && (o.ec.hi != null || o.ec.lo != null)) { o.H = o.ec.hi != null ? o.ec.hi : o.hi; o.Lo = o.ec.lo != null ? o.ec.lo : o.lo; o.Hsrc = 'EC'; }
+    else { o.H = o.hi; o.Lo = o.lo; o.Hsrc = 'M'; }
     return o;
   });
 
@@ -495,8 +505,7 @@ function processData(raw){
   if (!now || now.t == null) {
     const i = iNow; now = {src:'model', t: best.t[i], cond: null, icon: null, code: best.wc[i], at: best.at[i], ws: best.ws[i], wg: best.wg[i], wdTxt: dirTxt(best.wd[i]), night: isNight(i)};
   }
-  let gNow = null;
-  if (gg && gg.cur) gNow = {t: gT(gg.cur.temperature), txt: gg.cur.weatherCondition && gg.cur.weatherCondition.description ? gg.cur.weatherCondition.description.text : null};
+  const gNow = H.google && H.google.t[iNow] != null ? {t: H.google.t[iNow]} : null;
 
   const warnings = (fc && fc.warnings) || (ob && ob.warnings) || [];
   return {tz, N, ep, P, H, ids, models, dates, sun, isNight, iNow, best, band, popMed, ecH, ecDay, ecPeriods, ecIssued, normals, days, now, gNow,
@@ -569,7 +578,7 @@ function renderNow(){
   else if (t0.lo != null) today.push(`<span class="pill">Tonight ~<b>${fT(t0.lo)}</b></span>`);
   if (M.normals && M.normals.high != null) today.push(`<span class="pill mut">Normal ${fT(M.normals.high)} / ${fT(M.normals.low)}</span>`);
   const s = M.sun[0]; if (s) today.push(`<span class="pill mut">☀ ${clock(s.sr, tz)} – ${clock(s.ss, tz)}</span>`);
-  if (M.gNow && M.gNow.t != null) today.push(`<span class="pill" style="border:1px solid #34c759">Google now <b>${fT(M.gNow.t)}</b></span>`);
+  if (M.gNow && M.gNow.t != null) today.push(`<span class="pill" style="border:1px solid #34c759">Google this hour <b>${fT(M.gNow.t)}</b></span>`);
   const obs = n.src === 'EC'
     ? `Observed ${n.ts ? clock(n.ts, tz) : ''} at ${esc(n.station || 'nearest station')}${n.km != null && n.km > 3 ? ` (${r0(n.km)} km away)` : ''}${n.ts && Date.now() - n.ts > 2 * 3600e3 ? ' · <b>old reading</b>' : ''}`
     : 'No Environment Canada observation available. Showing the model estimate for this hour.';
@@ -690,7 +699,7 @@ function renderDays(){
       const rlo = Math.min(lo, d.loR ? d.loR[0] : lo), rhi = Math.max(hi, d.hiR ? d.hiR[1] : hi);
       bar = `<div class="rng" style="left:${pos(rlo)};width:calc(${pos(rhi)} - ${pos(rlo)})"></div><div class="med" style="left:${pos(Math.min(lo, hi))};width:max(6px, calc(${pos(Math.max(lo, hi))} - ${pos(Math.min(lo, hi))}));background:linear-gradient(90deg,${tColor(lo)},${tColor(hi)})"></div>`;
     } else if (hi != null || lo != null) { const v = hi ?? lo; bar = `<div class="med" style="left:calc(${pos(v)} - 4px);width:8px;background:${tColor(v)}"></div>`; }
-    const srcTag = d.Hsrc === 'EC' || d.Lsrc === 'EC' ? '<span class="src ec">EC</span>' : '<span class="src">MODELS</span>';
+    const srcTag = d.Hsrc === 'EC' ? '<span class="src ec">EC</span>' : d.Hsrc === 'G' ? '<span class="src g">GOOGLE</span>' : '<span class="src">MODELS</span>';
     return `<button class="dr" data-k="${d.k}"><span class="dn">${name}<small>${d.md}</small></span><span class="e">${em}</span>
       <span class="hl num"><b>${fT(hi)}</b> <span class="lo">${fT(lo)}</span>${srcTag}</span><div class="bar">${bar}</div>
       <span class="pr">${precip}${popTxt}</span><span class="dot" style="background:${conf}"></span></button>${openDay === d.k ? detail(d) : ''}`;
@@ -701,7 +710,7 @@ function detail(d){
   const rows = M.models.map(m => {
     const v = d.per[m.id]; if (!v) return '';
     const c = x => x == null ? '<td class="na">–</td>' : `<td>${x}</td>`;
-    return `<tr><td>${m.s} <span class="mut" style="font-size:11px">${m.id === 'gem_hrdps_continental' ? '2.5km' : ''}</span></td>${c(v.hi != null ? fT(v.hi) : null)}${c(v.lo != null ? fT(v.lo) : null)}${c(v.p != null ? v.p.toFixed(1) : null)}${c(v.s != null ? v.s.toFixed(1) : null)}${c(v.gust != null ? r0(v.gust) : null)}</tr>`;
+    return `<tr${m.id === 'google' ? ' style="color:#34c759;font-weight:650"' : ''}><td>${m.s} <span class="mut" style="font-size:11px">${m.id === 'gem_hrdps_continental' ? '2.5km' : ''}</span></td>${c(v.hi != null ? fT(v.hi) : null)}${c(v.lo != null ? fT(v.lo) : null)}${c(v.p != null ? v.p.toFixed(1) : null)}${c(v.s != null ? v.s.toFixed(1) : null)}${c(v.gust != null ? r0(v.gust) : null)}</tr>`;
   }).join('');
   const ecRow = d.ec ? `<tr class="ecrow"><td>EC official</td><td>${fT(d.ec.hi)}</td><td>${fT(d.ec.lo)}</td><td colspan="2">${esc([d.ec.day && d.ec.day.acc && d.ec.day.acc.v != null ? `${d.ec.day.acc.v} ${d.ec.day.acc.u || ''}` : '', d.ec.night && d.ec.night.acc && d.ec.night.acc.v != null ? `${d.ec.night.acc.v} ${d.ec.night.acc.u || ''}` : ''].filter(Boolean).join(' + '))}</td><td></td></tr>` : '';
   const conf = d.spread == null ? 'Not enough models this far out to judge agreement.' : d.spread <= 3 ? `Models agree on the high within ${Math.round(d.spread)}°. High confidence.` : d.spread <= 6 ? `Models differ by ${Math.round(d.spread)}° on the high. Moderate confidence.` : `Models differ by ${Math.round(d.spread)}° on the high. Low confidence: likely chinook or front timing.`;
@@ -730,14 +739,16 @@ async function load(force){
   if (!force && cached && Date.now() - cached.t < STALE_MS) { $('#updated').textContent = clock(cached.t, M ? M.tz : 'America/Edmonton'); return; }
   if (loading) return; loading = true; $('#refreshBtn').classList.add('spin');
   const errs = [];
-  const [om, ec, gg] = await Promise.allSettled([getJSON(omURL(loc), 25000), fetchECCC(loc), settings.gkey ? fetchGoogle(loc, settings.gkey) : Promise.resolve(null)]);
+  const gFresh = cached && cached.gg && cached.gg.t && cached.gk === settings.gkey && Date.now() - cached.gg.t < 30 * 60000;
+  const [om, ec, gg] = await Promise.allSettled([getJSON(omURL(loc), 25000), fetchECCC(loc), !settings.gkey ? Promise.resolve(null) : gFresh ? Promise.resolve(cached.gg) : fetchGoogle(loc, settings.gkey)]);
   loading = false; $('#refreshBtn').classList.remove('spin');
   if (om.status === 'rejected') errs.push({src: 'Models (Open-Meteo)', msg: om.reason.message + (cached ? ' Showing the last saved forecast.' : '')});
   if (ec.status === 'rejected') errs.push({src: 'Environment Canada', msg: ec.reason.message + '. Showing models only.'});
   else if (ec.value === null && loc.lat > 41 && loc.lat < 84 && loc.lon < -52 && loc.lon > -141) errs.push({src: 'Environment Canada', msg: 'No forecast site found near this location.'});
-  if (gg.status === 'rejected') errs.push({src: 'Google', msg: gg.reason.message + ' Check the key in ⚙ settings.'});
+  if (gg.status === 'rejected') errs.push({src: 'Google', msg: gg.reason.message + (/quota|exhaust|limit|429/i.test(gg.reason.message) ? ' Daily Google limit reached; it resets tomorrow. Other models are unaffected.' : ' Check the key in ⚙ settings.')});
   if (om.status === 'fulfilled') {
-    const raw = {om: om.value, ec: ec.status === 'fulfilled' ? ec.value : (cached && cached.ec) || null, gg: gg.status === 'fulfilled' ? gg.value : null, t: Date.now()};
+    const raw = {om: om.value, ec: ec.status === 'fulfilled' ? ec.value : (cached && cached.ec) || null,
+      gg: gg.status === 'fulfilled' ? gg.value : (settings.gkey && cached && cached.gk === settings.gkey ? cached.gg : null), gk: settings.gkey, t: Date.now()};
     if (!store.set(key, raw)) { // storage full: drop other locations' caches
       try { Object.keys(localStorage).filter(k => k.startsWith('cw.data.') && k !== key).forEach(k => localStorage.removeItem(k)); } catch(e){}
       store.set(key, raw);
@@ -786,7 +797,8 @@ function showFrame(){ radar.frames.forEach((f, i) => f.l.setOpacity(i === radar.
 function playRadar(){ clearInterval(radar.timer); let hold = 0; radar.timer = setInterval(() => { if (radar.idx === radar.frames.length - 1 && hold++ < 3) return; hold = 0; radar.idx = (radar.idx + 1) % radar.frames.length; showFrame(); }, 650); $('#radarPlay').textContent = '❚❚'; }
 
 /* ---------- settings sheet ---------- */
-function openSheet(){ renderLocs(); $('#gkey').value = settings.gkey || ''; $('#gStatus').textContent = settings.gkey ? 'Key saved. Google appears as an extra model.' : ''; $('#sheet').hidden = false; }
+function renderHead(){ const h = settings.headline || 'ec'; document.querySelectorAll('#headSeg button').forEach(b => b.classList.toggle('on', b.dataset.h === h)); }
+function openSheet(){ renderLocs(); renderHead(); $('#gkey').value = settings.gkey || ''; $('#gStatus').textContent = settings.gkey ? 'Key saved. Google appears as an extra model.' : ''; $('#sheet').hidden = false; }
 function closeSheet(){ $('#sheet').hidden = true; }
 function renderLocs(){
   $('#locList').innerHTML = settings.locs.map((l, i) => `<div class="lrow ${i === settings.cur ? 'cur' : ''}"><button class="nm" data-i="${i}" style="text-align:left">${esc(l.name)}<small>${esc(l.sub || '')} · ${l.lat.toFixed(2)}, ${l.lon.toFixed(2)}</small></button>${settings.locs.length > 1 ? `<button class="iconbtn" data-del="${i}" aria-label="Remove">✕</button>` : ''}</div>`).join('');
@@ -821,6 +833,7 @@ $('#refreshBtn').onclick = () => load(true);
 $('#qBtn').onclick = search; $('#q').onkeydown = e => { if (e.key === 'Enter') search(); };
 $('#gpsBtn').onclick = useGPS;
 $('#gSave').onclick = () => { settings.gkey = $('#gkey').value.trim(); saveSettings(); $('#gStatus').textContent = settings.gkey ? 'Saved. Loading Google forecast…' : 'Google removed.'; load(true).then(() => { $('#gStatus').textContent = settings.gkey ? ($('#errors').textContent.includes('Google') ? 'Google returned an error. See the message at the top.' : 'Working. Google is now an extra model.') : ''; }); };
+$('#headSeg').onclick = e => { const b = e.target.closest('button'); if (!b) return; settings.headline = b.dataset.h; saveSettings(); renderHead(); const c = store.get(cacheKey(curLoc()), null); if (c && c.om) render(c); };
 $('#radarBtn').onclick = startRadar;
 $('#radarPlay').onclick = () => { if (!radar) return; radar.playing = !radar.playing; if (radar.playing) playRadar(); else { clearInterval(radar.timer); $('#radarPlay').textContent = '▶'; } };
 $('#radarSeg').onclick = e => { const b = e.target.closest('button'); if (b && radar) radarLayer(b.dataset.l); };
