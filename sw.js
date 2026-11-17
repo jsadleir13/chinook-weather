@@ -1,6 +1,6 @@
 // Chinook Weather service worker: keeps the app shell available offline.
 // Forecast data is cached by the app itself (localStorage), so API calls pass straight through.
-const CACHE = 'chinook-v1.0.0';
+const CACHE = 'chinook-v1.0.1';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', e => {

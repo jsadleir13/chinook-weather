@@ -212,7 +212,7 @@ input[type=text],input[type=password],input[type=search]{width:100%;font:inherit
 
 <script>
 'use strict';
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 const MODELS = [
   {id:'gem_hrdps_continental', s:'HRDPS', n:'Canada high-res 2.5 km (2 days)'},
   {id:'gem_regional',          s:'RDPS',  n:'Canada regional 10 km (3.5 days)'},
@@ -423,9 +423,11 @@ function processData(raw){
       const tv = temps.length ? num(ev(temps[0])) : null;
       const text = L(f.textSummary) || '';
       const popM = text.match(/(\d+) percent chance/i);
-      const acc = f.precipitation && f.precipitation.accumulation;
+      const acc0 = f.precipitation && f.precipitation.accumulation;
+      const am = text.match(/Amount (\d+(?:\.\d+)?)(?: to (\d+(?:\.\d+)?))? (cm|mm)/i);
+      const acc = am ? {amount: {value: {en: am[2] ? `${am[1]}–${am[2]}` : am[1]}, units: {en: am[3]}}, name: acc0 && acc0.name} : acc0;
       const per = {label: L(f.period && f.period.textForecastName) || pv, text, icon: num(f.abbreviatedForecast && f.abbreviatedForecast.icon && f.abbreviatedForecast.icon.value), abbr: L(f.abbreviatedForecast && f.abbreviatedForecast.textSummary), pop: popM ? +popM[1] : null,
-        acc: acc ? {v: num(ev(acc.amount)), u: L(acc.amount && acc.amount.units), name: L(acc.name)} : null};
+        acc: acc ? {v: ev(acc.amount), u: L(acc.amount && acc.amount.units), name: L(acc.name)} : null};
       ecPeriods.push(per);
       if (!date) continue;
       const d = ecDay[date] || (ecDay[date] = {});
@@ -615,7 +617,7 @@ function renderChart(){
   const bw = Math.max(2, (W - pl - pr) / n - 1.5);
   for (let i = i0; i <= i1; i++) { const p = best.p[i]; if (!p || p < 0.05) continue; const h = Math.max(2, p / pmax * bh); const snow = (best.s[i] || 0) > 0.02 || (best.t[i] != null && best.t[i] <= 0.5);
     parts_.push(`<rect x="${(X(i) - bw / 2).toFixed(1)}" y="${(bt + bh - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="${snow ? 'var(--snow)' : 'var(--rain)'}"/>`); }
-  parts_.push(`<text x="${pl - 5}" y="${bt + bh}" text-anchor="end" font-size="10" fill="var(--mut)">${pmax > 1.05 ? pmax.toFixed(1) : '1'}mm</text>`);
+  parts_.push(`<text x="${pl - 5}" y="${bt + 8}" text-anchor="end" font-size="9.5" fill="var(--mut)">${pmax > 1.05 ? pmax.toFixed(1) : '1'}</text><text x="${pl - 5}" y="${bt + bh}" text-anchor="end" font-size="9.5" fill="var(--mut)">mm</text>`);
   parts_.push(`<line x1="${pl}" x2="${W - pr}" y1="${bt + bh + 0.5}" y2="${bt + bh + 0.5}" stroke="var(--line)"/>`);
   // x labels
   for (let i = i0; i <= i1; i++) { const p = M.P[i]; if (p.h % 6 !== 0) continue; const x = X(i);
@@ -757,7 +759,9 @@ async function startRadar(){
     $('#radarStart').hidden = true; $('#radarBox').hidden = false;
     const loc = curLoc(); const dark = matchMedia('(prefers-color-scheme: dark)').matches;
     const map = window.L.map('radarMap', {zoomControl: false, attributionControl: true}).setView([loc.lat, loc.lon], 8);
-    window.L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png`, {maxZoom: 12, attribution: '© OpenStreetMap © CARTO · Radar: ECCC'}).addTo(map);
+    map.createPane('base'); map.getPane('base').style.zIndex = 150;
+    if (dark) map.getPane('base').style.filter = 'invert(1) hue-rotate(180deg) brightness(.85) contrast(.9)';
+    window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {pane: 'base', maxZoom: 12, attribution: '© OpenStreetMap contributors · Radar: ECCC'}).addTo(map);
     window.L.circleMarker([loc.lat, loc.lon], {radius: 6, color: '#fff', weight: 2, fillColor: '#ff9f43', fillOpacity: 1}).addTo(map);
     const t = M && M.best.t[M.iNow];
     radar = {map, layer: t != null && t > 2 ? 'RADAR_1KM_RRAI' : 'RADAR_1KM_RSNO', frames: [], idx: 0, playing: true, timer: null};
