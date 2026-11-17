@@ -212,7 +212,7 @@ input[type=text],input[type=password],input[type=search]{width:100%;font:inherit
 
 <script>
 'use strict';
-const VERSION = '1.0.1';
+const VERSION = '1.0.2';
 const MODELS = [
   {id:'gem_hrdps_continental', s:'HRDPS', n:'Canada high-res 2.5 km (2 days)'},
   {id:'gem_regional',          s:'RDPS',  n:'Canada regional 10 km (3.5 days)'},
@@ -825,7 +825,7 @@ $('#radarPlay').onclick = () => { if (!radar) return; radar.playing = !radar.pla
 $('#radarSeg').onclick = e => { const b = e.target.closest('button'); if (b && radar) radarLayer(b.dataset.l); };
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(false); });
 let rzT; window.addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(() => { if (M) { renderChart(); } }, 200); });
-if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js', {updateViaCache: 'none'}).catch(() => {});
 load(false);
 </script>
 </body>
